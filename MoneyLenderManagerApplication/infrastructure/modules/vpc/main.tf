@@ -123,6 +123,24 @@ resource "aws_security_group" "ecs" {
   description = "Security group for ECS Fargate services"
   vpc_id      = aws_vpc.main.id
 
+  # Allow inbound only from within VPC (API Gateway VPC Link + inter-service)
+  ingress {
+    from_port   = 8000
+    to_port     = 8000
+    protocol    = "tcp"
+    cidr_blocks = [var.vpc_cidr]
+    description = "API Gateway VPC Link + inter-service communication"
+  }
+
+  # Allow ECS services to talk to each other
+  ingress {
+    from_port       = 8000
+    to_port         = 8000
+    protocol        = "tcp"
+    self            = true
+    description     = "Inter-service communication"
+  }
+
   egress {
     from_port   = 0
     to_port     = 0
@@ -137,14 +155,25 @@ resource "aws_security_group" "ecs" {
 
 resource "aws_security_group" "rds" {
   name        = "${var.project_prefix}-rds-sg-${var.environment}"
-  description = "Security group for RDS MySQL"
+  description = "Security group for RDS MySQL - no internet access"
   vpc_id      = aws_vpc.main.id
 
+  # Only ECS and Lambda can connect
   ingress {
     from_port       = 3306
     to_port         = 3306
     protocol        = "tcp"
     security_groups = [aws_security_group.ecs.id, aws_security_group.lambda.id]
+    description     = "MySQL access from ECS + Lambda only"
+  }
+
+  # No egress — RDS doesn't need outbound internet
+  egress {
+    from_port       = 0
+    to_port         = 0
+    protocol        = "-1"
+    security_groups = [aws_security_group.ecs.id]
+    description     = "Response traffic to ECS only"
   }
 
   tags = {
