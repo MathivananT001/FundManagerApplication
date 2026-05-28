@@ -1,0 +1,87 @@
+version: "3.8"
+
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: moneylender
+      MYSQL_USER: mlm_admin
+      MYSQL_PASSWORD: devpassword
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./infrastructure/migrations/001_initial_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql
+      - ./infrastructure/migrations/seed_data.sql:/docker-entrypoint-initdb.d/002_seed.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      retries: 10
+
+  auth-service:
+    build: ./auth-service
+    ports:
+      - "8001:8000"
+    environment:
+      DATABASE_URL: mysql+pymysql://mlm_admin:devpassword@mysql:3306/moneylender
+      AWS_REGION: ap-south-1
+      COGNITO_USER_POOL_ID: local-pool
+      COGNITO_CLIENT_ID: local-client
+      DYNAMODB_SESSIONS_TABLE: mlm-sessions-dev
+      JWT_SECRET_KEY: dev-secret-key
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  group-service:
+    build: ./group-service
+    ports:
+      - "8002:8000"
+    environment:
+      DATABASE_URL: mysql+pymysql://mlm_admin:devpassword@mysql:3306/moneylender
+      AWS_REGION: ap-south-1
+      S3_ARCHIVES_BUCKET: mlm-group-archives-dev
+      NOTIFICATION_SERVICE_URL: http://notification-service:8000
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  notification-service:
+    build: ./notification-service
+    ports:
+      - "8003:8000"
+    environment:
+      AWS_REGION: ap-south-1
+      SQS_NOTIFICATION_QUEUE_URL: http://localhost:9324/queue/notifications
+      DYNAMODB_NOTIFICATION_LOGS_TABLE: mlm-notification-logs-dev
+      DYNAMODB_DEVICE_TOKENS_TABLE: mlm-device-tokens-dev
+      LOCALIZATION_BUCKET: mlm-localization-dev
+
+  payment-service:
+    build: ./payment-service
+    ports:
+      - "8004:8000"
+    environment:
+      DATABASE_URL: mysql+pymysql://mlm_admin:devpassword@mysql:3306/moneylender
+      AWS_REGION: ap-south-1
+      S3_PAYMENT_PROOFS_BUCKET: mlm-payment-proofs-dev
+      NOTIFICATION_SERVICE_URL: http://notification-service:8000
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  auction-service:
+    build: ./auction-service
+    ports:
+      - "8005:8000"
+    environment:
+      DATABASE_URL: mysql+pymysql://mlm_admin:devpassword@mysql:3306/moneylender
+      AWS_REGION: ap-south-1
+      DYNAMODB_AUCTION_CONNECTIONS_TABLE: mlm-auction-connections-dev
+      DYNAMODB_AUCTION_STATE_TABLE: mlm-auction-state-dev
+      GROUP_SERVICE_URL: http://group-service:8000
+      PAYMENT_SERVICE_URL: http://payment-service:8000
+      NOTIFICATION_SERVICE_URL: http://notification-service:8000
+    depends_on:
+      mysql:
+        condition: service_healthy
